@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# duedillforge launcher (POSIX shells, incl. Git Bash): interpreter discovery -> __main__.py.
+# Derived from the memoforge launcher (MIT, Grigorii Moskalev).
+# Needs only the standard library to start; python-docx and openpyxl are used by the export step only.
+set -u
+
+SCRIPT_PATH="${BASH_SOURCE[0]:-$0}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd)"
+PLUGIN_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+VERSION_PROBE='import sys; sys.exit(0 if sys.version_info>=(3,9) else 1)'
+
+# --- plugin_data_dir chain --------------------------------------
+# ${CLAUDE_PLUGIN_DATA} -> %LOCALAPPDATA%/claude/plugin-data/ddforge (Windows marker)
+#                          / ~/.claude/plugin-data/ddforge -> <plugin_root>/.data
+# A candidate is taken only when it can be created AND written to — the same criterion as
+# config.plugin_data_dir(), otherwise the wrapper and the package would disagree.
+mf_usable_dir() {
+  [ -n "${1:-}" ] || return 1
+  mkdir -p "$1" 2>/dev/null || return 1
+  : >"$1/.ddf-write-probe" 2>/dev/null || return 1
+  rm -f "$1/.ddf-write-probe" 2>/dev/null
+  return 0
+}
+
+DATA_DIR=""
+if [ -n "${CLAUDE_PLUGIN_DATA:-}" ] && mf_usable_dir "$CLAUDE_PLUGIN_DATA"; then
+  DATA_DIR="$CLAUDE_PLUGIN_DATA"
+fi
+if [ -z "$DATA_DIR" ]; then
+  if [ -n "${LOCALAPPDATA:-}" ]; then
+    DDF_HOME_CANDIDATE="$LOCALAPPDATA/claude/plugin-data/ddforge"
+  elif [ -n "${HOME:-}" ]; then
+    DDF_HOME_CANDIDATE="$HOME/.claude/plugin-data/ddforge"
+  else
+    DDF_HOME_CANDIDATE=""
+  fi
+  if mf_usable_dir "$DDF_HOME_CANDIDATE"; then
+    DATA_DIR="$DDF_HOME_CANDIDATE"
+  fi
+fi
+if [ -z "$DATA_DIR" ]; then
+  DATA_DIR="$PLUGIN_ROOT/.data"
+  mkdir -p "$DATA_DIR" 2>/dev/null || true
+fi
+
+# Service flag: print the resolved chain result and stop .
+if [ "${1:-}" = "--print-plugin-data-dir" ]; then
+  printf '%s\n' "$DATA_DIR"
+  exit 0
+fi
+
+DDF_CACHE="$DATA_DIR/launcher.json"
+DDF_PYTHON=""
+DDF_PYTHON_ARGS=""
+DDF_FROM_CACHE=""
+
+# --- discovery cache (<plugin_data_dir>/launcher.json) --------------------
+# Read first: a hit costs one interpreter start instead of up to three .
+if [ -f "$DDF_CACHE" ]; then
+  DDF_CACHED="$(tr -d '\n' <"$DDF_CACHE" 2>/dev/null |
+    sed -n 's/.*"python_cmd"[[:space:]]*:[[:space:]]*\[\([^]]*\)\].*/\1/p' |
+    tr -d '"' | tr ',' ' ')"
+  if [ -n "${DDF_CACHED:-}" ]; then
+    DDF_CACHED_EXE="${DDF_CACHED%% *}"
+    DDF_CACHED_ARGS="${DDF_CACHED#* }"
+    [ "$DDF_CACHED_ARGS" = "$DDF_CACHED" ] && DDF_CACHED_ARGS=""
+    if [ -n "$DDF_CACHED_EXE" ] && command -v "$DDF_CACHED_EXE" >/dev/null 2>&1; then
+      # shellcheck disable=SC2086
+      if "$DDF_CACHED_EXE" $DDF_CACHED_ARGS -c "$VERSION_PROBE" >/dev/null 2>&1; then
+        DDF_PYTHON="$DDF_CACHED_EXE"
+        DDF_PYTHON_ARGS="$DDF_CACHED_ARGS"
+        DDF_FROM_CACHE="1"
+      fi
+    fi
+  fi
+fi
+
+# --- interpreter discovery: python -> python3 -> py -3 --------------------
+# A Windows Store alias fails the version probe by its exit code and is skipped.
+if [ -z "$DDF_PYTHON" ]; then
+  for DDF_CANDIDATE in "python" "python3" "py -3"; do
+    DDF_EXE="${DDF_CANDIDATE%% *}"
+    command -v "$DDF_EXE" >/dev/null 2>&1 || continue
+    # shellcheck disable=SC2086
+    if $DDF_CANDIDATE -c "$VERSION_PROBE" >/dev/null 2>&1; then
+      DDF_PYTHON="$DDF_EXE"
+      case "$DDF_CANDIDATE" in
+        *" "*) DDF_PYTHON_ARGS="${DDF_CANDIDATE#* }" ;;
+      esac
+      break
+    fi
+  done
+fi
+
+if [ -z "$DDF_PYTHON" ]; then
+  echo "ddf: no Python >= 3.9 found (tried python, python3, py -3)" >&2
+  exit 2
+fi
+
+# Miss (or a stale cache) rewrites the cache with what discovery just found.
+if [ -z "$DDF_FROM_CACHE" ]; then
+  if [ -n "$DDF_PYTHON_ARGS" ]; then
+    DDF_PY_JSON="\"$DDF_PYTHON\", \"$DDF_PYTHON_ARGS\""
+  else
+    DDF_PY_JSON="\"$DDF_PYTHON\""
+  fi
+  DDF_TMP="$DDF_CACHE.$$"
+  if printf '{"schema_version": 1, "kind": "launcher", "python_cmd": [%s], "source": "ddf"}\n' \
+      "$DDF_PY_JSON" >"$DDF_TMP" 2>/dev/null; then
+    mv -f "$DDF_TMP" "$DDF_CACHE" 2>/dev/null || rm -f "$DDF_TMP" 2>/dev/null || true
+  fi
+fi
+
+# --- PYTHONPATH += <plugin_data_dir>/site-packages ------------------------
+if [ -n "${LOCALAPPDATA:-}" ]; then
+  DDF_PATHSEP=";"
+else
+  DDF_PATHSEP=":"
+fi
+if [ -n "${PYTHONPATH:-}" ]; then
+  PYTHONPATH="$DATA_DIR/site-packages$DDF_PATHSEP$PYTHONPATH"
+else
+  PYTHONPATH="$DATA_DIR/site-packages"
+fi
+export PYTHONPATH
+
+# shellcheck disable=SC2086
+exec "$DDF_PYTHON" $DDF_PYTHON_ARGS "$PLUGIN_ROOT/scripts/ddforge/__main__.py" "$@"

@@ -1,0 +1,63 @@
+{
+  "name": "duedillforge",
+  "displayName": "duedillforge UA — юридичний due diligence за правом України",
+  "version": "0.1.0",
+  "description": "Multi-agent legal due diligence of a Ukrainian company on NotebookLM notebooks and project documents: per-block checklists, a verification ledger in which the program (not the model) decides whether «not found» may be written, a risk register (критичний / суттєвий / до відома), a request list for missing documents, and a DOCX report with an XLSX register in Ukrainian. Legislation comes from a dedicated NotebookLM notebook; Legal Data Hunter is the fallback when a norm is not in the notebooks.",
+  "author": {
+    "name": "arefievarefiev-glitch"
+  },
+  "homepage": "https://github.com/arefievarefiev-glitch/duedillforge-ua#readme",
+  "repository": "https://github.com/arefievarefiev-glitch/duedillforge-ua",
+  "license": "MIT",
+  "keywords": [
+    "ukraine",
+    "legal",
+    "due-diligence",
+    "m&a",
+    "notebooklm",
+    "docx",
+    "multi-agent"
+  ],
+  "userConfig": {
+    "output_folder": {
+      "title": "Output folder",
+      "type": "directory",
+      "description": "Where task folders are created. Default: ~/Documents/duedillforge, then ./outputs/duedillforge-work."
+    },
+    "publish_folder": {
+      "title": "Publish folder",
+      "type": "directory",
+      "description": "Where the finished report, register and request list are copied. Default: the host's outputs area when one exists (Cowork /mnt/user-data/outputs)."
+    },
+    "max_parallel_queries": {
+      "title": "Parallel NotebookLM queries",
+      "type": "string",
+      "default": "2",
+      "description": "Total number of NotebookLM queries in flight across all agents. Default 2. Not tested live; raise only after a trial run on a small notebook."
+    },
+    "items_per_batch": {
+      "title": "Checklist items per agent run",
+      "type": "string",
+      "default": "8",
+      "description": "How many checklist items one block-reviewer run takes. Smaller batches resume more precisely after a pause."
+    },
+    "findings_gate": {
+      "title": "Findings review gate",
+      "type": "string",
+      "default": "auto",
+      "description": "Stop for your review of critical findings before the report is written: auto (only when critical findings exist), on (always) or off (never)."
+    },
+    "review_iterations": {
+      "title": "Report review rounds",
+      "type": "string",
+      "default": "2",
+      "description": "Maximum number of review rounds of the report (the first review plus revisions)."
+    },
+    "writer_model": {
+      "title": "Report writer model",
+      "type": "string",
+      "default": "opus",
+      "description": "Model for report-writer: opus, fable or sonnet. An unknown value falls back to opus."
+    }
+  }
+}

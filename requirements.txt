@@ -1,0 +1,5 @@
+# duedillforge runtime dependencies. The program starts without them; they are needed for DOCX/XLSX output and for
+# reading DOCX/PDF documents from the project. Installed into <plugin_data_dir>/site-packages by `ddf deps install`.
+python-docx>=1.1
+openpyxl>=3.1
+pypdf>=4.0
